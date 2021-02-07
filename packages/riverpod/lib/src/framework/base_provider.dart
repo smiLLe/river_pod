@@ -458,6 +458,9 @@ abstract class ProviderReference<Listened> {
   ///   sorted only once.
   /// - if nothing is listening to `sortedTodosProvider`, then no sort if performed.
   T watch<T>(AlwaysAliveProviderBase<Object?, T> provider);
+
+  void onState<T>(
+      AlwaysAliveProviderBase<Object?, T> provider, void Function(T state) cb);
 }
 
 class _Listener<Listened> extends LinkedListEntry<_Listener<Listened>> {
@@ -648,6 +651,23 @@ class ProviderElement<Created, Listened>
       );
     }) as ProviderSubscription<T>;
     return sub.read();
+  }
+
+  @override
+  void onState<T>(
+      ProviderBase<Object?, T> provider, void Function(T state) cb) {
+    assert(_debugAssertCanDependOn(provider), '');
+
+    final element = _container.readProviderElement(provider);
+    element._dependents ??= {};
+    element._dependents!.add(this);
+    onDispose(element.listen(mayHaveChanged: (s) {
+      final newVal = s.read();
+      cb(newVal);
+    }, didChange: (s) {
+      // final newVal = s.read();
+      // cb(newVal);
+    }).close);
   }
 
   void _markDependencyMayHaveChanged(ProviderSubscription sub) {
