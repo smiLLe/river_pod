@@ -322,15 +322,12 @@ abstract class ProviderReference<Listened> {
   ///
   /// __Cannot__ be used while building a provider.
   /// ```dart
-  /// final provider = Provider<AsyncValue<Todos>>((ref) {
-  ///   get('endpoint').then((todos) => ref.setState(AsyncValue.data(todos)));
-  ///   return AsyncValue.loading();
+  /// final provider = Provider<List<Foo>>((ref) {
+  ///   get('endpoint').then((foo) => ref.state = [...ref.state, ...foo);
+  ///   return <Foo>[];
   /// });
   /// ```
-  Listened get currentState;
-
-  /// The [ProviderContainer] that this provider is associated with.
-  ProviderContainer get container;
+  Listened get state;
 
   /// Will allow to update the currently exposed state which will also update all
   /// dependent providers.
@@ -339,12 +336,15 @@ abstract class ProviderReference<Listened> {
   ///
   /// __Cannot__ be used while building a provider or in [ProviderReference.onDispose]
   /// ```dart
-  /// final provider = Provider<int>((ref) {
-  ///   Future.value(1).then((value) => ref.setState(value));
-  ///   return 0;
+  /// final provider = Provider<AsyncValue<Foo>>((ref) {
+  ///   get('endpoint').then((foo) => ref.state = AsyncValue.data(foo));
+  ///   return AsyncValue.loading();
   /// });
   /// ```
-  void setState(Listened newState);
+  set state(Listened newState);
+
+  /// The [ProviderContainer] that this provider is associated with.
+  ProviderContainer get container;
 
   /// Adds a listener to perform an operation right before the provider is destroyed.
   ///
@@ -525,7 +525,7 @@ class ProviderSubscription<Listened> {
 class ProviderElement<Created, Listened>
     implements ProviderReference<Listened> {
   /// Do not use.
-  ProviderElement(this._provider) : state = _provider.createState();
+  ProviderElement(this._provider) : providerState = _provider.createState();
 
   static ProviderElement? _debugCurrentlyBuildingElement;
 
@@ -537,13 +537,27 @@ class ProviderElement<Created, Listened>
   ProviderBase<Created, Listened> get provider => _provider;
   ProviderBase<Created, Listened> _provider;
 
-  final ProviderStateBase<Created, Listened> state;
+  final ProviderStateBase<Created, Listened> providerState;
 
   @override
-  Listened get currentState {
+  Listened get state {
     assert(_debugCurrentlyBuildingElement == null,
-        'Cannot call ref.currentState while building $_provider');
-    return state.exposedValue as Listened;
+        'Cannot call ref.state while building $_provider');
+    return providerState.exposedValue as Listened;
+  }
+
+  @override
+  set state(Listened newState) {
+    if (!_mounted) {
+      throw StateError('Cannot set state after a provider was disposed');
+    }
+    assert(_debugIsDisposing == false,
+        'Cannot set state in onDispose on $_provider');
+
+    assert(_debugCurrentlyBuildingElement == null,
+        'Cannot set state while building $_provider');
+
+    providerState.exposedValueChanged(newState);
   }
 
   /// The [ProviderContainer] that owns this [ProviderElement].
@@ -662,20 +676,6 @@ class ProviderElement<Created, Listened>
     }
   }
 
-  @override
-  void setState(Listened newState) {
-    if (!_mounted) {
-      throw StateError('Cannot call setState after a provider was disposed');
-    }
-    assert(_debugIsDisposing == false,
-        'Cannot call .setState(newState) in onDispose on $_provider');
-
-    assert(_debugCurrentlyBuildingElement == null,
-        'Cannot call .setState(newState) while building $_provider');
-
-    state.exposedValueChanged(newState);
-  }
-
   /// Listen to this provider.
   ///
   /// See also:
@@ -752,7 +752,7 @@ class ProviderElement<Created, Listened>
     if (_exception != null) {
       throw _exception!;
     }
-    return state._exposedValue as Listened;
+    return providerState._exposedValue as Listened;
   }
 
   void _debugMarkWillChange() {
@@ -838,7 +838,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
       _runBinaryGuarded(
         observer.didUpdateProvider,
         _origin,
-        state._exposedValue,
+        providerState._exposedValue,
       );
     }
   }
@@ -858,7 +858,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
   @mustCallSuper
   void mount() {
     _mounted = true;
-    state._element = this;
+    providerState._element = this;
     assert(() {
       _debugIsFlushing = true;
       return true;
@@ -908,7 +908,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
     }
 
     _listeners.clear();
-    state.dispose();
+    providerState.dispose();
   }
 
   /// Forces the state of a provider to be re-created, even if none of its
@@ -937,7 +937,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
 
   @protected
   void _runStateCreate() {
-    final previous = state._createdValue;
+    final previous = providerState._createdValue;
     _previousSubscriptions = _subscriptions;
     _subscriptions = {};
     ProviderElement? debugPreviouslyBuildingElement;
@@ -948,10 +948,10 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
     }(), '');
 
     try {
-      state._createdValue = _provider._create(this);
-      state.valueChanged(previous: previous);
+      providerState._createdValue = _provider._create(this);
+      providerState.valueChanged(previous: previous);
     } catch (err, stack) {
-      if (!state.handleError(err, stack)) {
+      if (!providerState.handleError(err, stack)) {
         _exception = ProviderException._(err, stack, _provider);
       }
     } finally {
@@ -1017,7 +1017,7 @@ abstract class ProviderStateBase<Created, Listened> {
   // ignore: use_setters_to_change_properties
   /// Updates the currently exposed value.
   ///
-  /// This will usually be called by [ProviderReference.setState].
+  /// This will usually be called by [ProviderReference.state].
   @protected
   void exposedValueChanged(Listened newValue) {
     exposedValue = newValue;
