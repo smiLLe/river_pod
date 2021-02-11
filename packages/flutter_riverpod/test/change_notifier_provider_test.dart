@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +80,62 @@ void main() {
 
     expect(notifier.mounted, isFalse);
   });
+
+  test('can set state', () async {
+    final container = ProviderContainer();
+    final initialNotifier = TestNotifier();
+    final notifier = TestNotifier();
+    final completer = Completer<void>();
+    final provider = ChangeNotifierProvider((ref) {
+      Future(() {
+        ref.setState(notifier);
+        completer.complete();
+      });
+      return initialNotifier;
+    });
+
+    container.read(provider);
+    await completer.future;
+    expect(container.read(provider), notifier);
+  });
+
+  test('dispose', () async {
+    final container = ProviderContainer();
+    final notifier = TestNotifier();
+    final provider = ChangeNotifierProvider((ref) {
+      return notifier;
+    });
+
+    container.read(provider);
+    container.dispose();
+    expect(notifier.mounted, isFalse);
+  });
+
+  test('dispose when used with set state', () async {
+    final container = ProviderContainer();
+    final initialNotifier = TestNotifier();
+    final notifier = TestNotifier();
+    final completer = Completer<void>();
+    final provider = ChangeNotifierProvider((ref) {
+      Future(() {
+        ref.setState(notifier);
+        completer.complete();
+      });
+      return initialNotifier;
+    });
+
+    container.read(provider);
+    await completer.future;
+    container.read(provider);
+    expect(initialNotifier.mounted, isFalse);
+    expect(() => initialNotifier.hasListeners, throwsFlutterError);
+    expect(notifier.mounted, isTrue);
+    expect(notifier.hasListeners, isTrue);
+
+    container.dispose();
+    expect(() => notifier.hasListeners, throwsFlutterError);
+    expect(notifier.mounted, isFalse);
+  });
 }
 
 class TestNotifier extends ChangeNotifier {
@@ -89,6 +147,10 @@ class TestNotifier extends ChangeNotifier {
     _count = count;
     notifyListeners();
   }
+
+  @override
+  // ignore: unnecessary_overrides
+  bool get hasListeners => super.hasListeners;
 
   @override
   void dispose() {

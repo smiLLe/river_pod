@@ -5,8 +5,8 @@ import 'framework.dart';
 import 'state_notifier_provider.dart';
 import 'stream_provider.dart';
 
-part 'provider/base.dart';
 part 'provider/auto_dispose.dart';
+part 'provider/base.dart';
 
 /// {@template riverpod.provider}
 /// A provider that exposes a read-only value.
