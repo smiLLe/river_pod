@@ -652,9 +652,6 @@ class ProviderElement<Created, Listened>
     onDispose(element.listen(mayHaveChanged: (s) {
       final newVal = s.read();
       cb(newVal);
-    }, didChange: (s) {
-      // final newVal = s.read();
-      // cb(newVal);
     }).close);
   }
 
