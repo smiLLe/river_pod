@@ -151,7 +151,7 @@ class ProviderContainer {
     void Function(ProviderSubscription<Result> sub)? didChange,
   }) {
     if (provider is ProviderBase<Object?, Result>) {
-      return readProviderElement(provider).listen(
+      return readProviderElement(provider).addListener(
         mayHaveChanged: mayHaveChanged,
         didChange: didChange,
       );
@@ -363,7 +363,7 @@ class ProviderContainer {
 
     for (final element in _stateReaders.values) {
       if (element._subscriptions.keys
-          .where((e) => e._container == this)
+          .where((type) => type.element._container == this)
           .isEmpty) {
         queue.add(element);
       }
@@ -383,8 +383,9 @@ class ProviderContainer {
         for (final dependent in element._dependents!) {
           if (dependent._container == this &&
               // All the parents of a node must have been visited before a node is visited
-              dependent._subscriptions.keys.every((e) {
-                return e._container != this || visitedNodes.contains(e);
+              dependent._subscriptions.keys.every((type) {
+                return type.element._container != this ||
+                    visitedNodes.contains(type.element);
               })) {
             queue.add(dependent);
           }

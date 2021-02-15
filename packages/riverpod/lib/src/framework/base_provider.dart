@@ -449,7 +449,7 @@ abstract class ProviderReference<Listened> {
   /// - if nothing is listening to `sortedTodosProvider`, then no sort if performed.
   T watch<T>(AlwaysAliveProviderBase<Object?, T> provider);
 
-  void onState<T>(
+  void listen<T>(
       AlwaysAliveProviderBase<Object?, T> provider, void Function(T state) cb);
 }
 
@@ -571,13 +571,13 @@ class ProviderElement<Created, Listened>
 
   /// Whether this [ProviderElement] is currently listened or not.
   ///
-  /// This maps to listeners added with [listen].
+  /// This maps to listeners added with [addListener].
   /// See also [mayNeedDispose], called when [hasListeners] may have changed.
   bool get hasListeners => _listeners.isNotEmpty;
 
   final _listeners = LinkedList<_Listener<Listened>>();
-  var _subscriptions = <ProviderElement, ProviderSubscription>{};
-  Map<ProviderElement, ProviderSubscription>? _previousSubscriptions;
+  var _subscriptions = <SubscriptionType, ProviderSubscription>{};
+  Map<SubscriptionType, ProviderSubscription>? _previousSubscriptions;
   DoubleLinkedQueue<void Function()>? _onDisposeListeners;
 
   int _notificationCount = 0;
@@ -641,14 +641,19 @@ class ProviderElement<Created, Listened>
     assert(_debugAssertCanDependOn(provider), '');
 
     final element = _container.readProviderElement(provider);
-    final sub = _subscriptions.putIfAbsent(element, () {
-      final previousSub = _previousSubscriptions?.remove(element);
+    assert(
+        false == _subscriptions.containsKey(SubscriptionType.listen(element)),
+        'Cannot watch Provider $provider because it is already listened');
+
+    final type = SubscriptionType.watch(element);
+    final sub = _subscriptions.putIfAbsent(type, () {
+      final previousSub = _previousSubscriptions?.remove(type);
       if (previousSub != null) {
         return previousSub;
       }
       element._dependents ??= {};
       element._dependents!.add(this);
-      return element.listen(
+      return element.addListener(
         mayHaveChanged: _markDependencyMayHaveChanged,
       );
     }) as ProviderSubscription<T>;
@@ -656,17 +661,27 @@ class ProviderElement<Created, Listened>
   }
 
   @override
-  void onState<T>(
-      ProviderBase<Object?, T> provider, void Function(T state) cb) {
+  void listen<T>(ProviderBase<Object?, T> provider, void Function(T state) cb) {
     assert(_debugAssertCanDependOn(provider), '');
 
     final element = _container.readProviderElement(provider);
-    element._dependents ??= {};
-    element._dependents!.add(this);
-    onDispose(element.listen(mayHaveChanged: (s) {
-      final newVal = s.read();
-      cb(newVal);
-    }).close);
+    assert(false == _subscriptions.containsKey(SubscriptionType.watch(element)),
+        'Cannot listen Provider $provider because it is already watched');
+
+    final type = SubscriptionType.listen(element);
+    _subscriptions.putIfAbsent(type, () {
+      final previousSub = _previousSubscriptions?.remove(type);
+      if (previousSub != null) {
+        return previousSub;
+      }
+      element._dependents ??= {};
+      element._dependents!.add(this);
+      return element.addListener(
+        mayHaveChanged: (s) {
+          cb(element.getExposedValue());
+        },
+      );
+    });
   }
 
   void _markDependencyMayHaveChanged(ProviderSubscription sub) {
@@ -682,7 +697,7 @@ class ProviderElement<Created, Listened>
   ///
   /// - [ProviderContainer.listen], which internally calls this method
   /// - [ProviderReference.watch], which makes a provider listen to another provider.
-  ProviderSubscription<Listened> listen({
+  ProviderSubscription<Listened> addListener({
     void Function(ProviderSubscription<Listened> sub)? mayHaveChanged,
     void Function(ProviderSubscription<Listened> sub)? didChange,
   }) {
@@ -789,7 +804,7 @@ class ProviderElement<Created, Listened>
         return true;
       }
       final parentsQueue = DoubleLinkedQueue<ProviderElement>.from(
-        _subscriptions.keys,
+        _subscriptions.keys.map<ProviderElement>((type) => type.element),
       );
 
       while (parentsQueue.isNotEmpty) {
@@ -797,7 +812,8 @@ class ProviderElement<Created, Listened>
         if (parent == _debugCurrentlyBuildingElement) {
           return true;
         }
-        parentsQueue.addAll(parent._subscriptions.keys);
+        parentsQueue
+            .addAll(parent._subscriptions.keys.map((type) => type.element));
       }
 
       throw AssertionError('''
@@ -896,7 +912,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
     _runOnDispose();
 
     for (final sub in _subscriptions.entries) {
-      sub.key._dependents?.remove(this);
+      sub.key.element._dependents?.remove(this);
       sub.value.close();
     }
 
@@ -961,7 +977,7 @@ but $provider does not depend on ${_debugCurrentlyBuildingElement!.provider}.
       }(), '');
       if (_previousSubscriptions != null) {
         for (final sub in _previousSubscriptions!.entries) {
-          sub.key._dependents?.remove(this);
+          sub.key.element._dependents?.remove(this);
           sub.value.close();
         }
       }

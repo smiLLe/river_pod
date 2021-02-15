@@ -5,29 +5,17 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod/src/internals.dart';
 import 'package:test/test.dart';
 
-class Counter extends StateNotifier<int> {
-  Counter([int initialValue = 0]) : super(initialValue);
-
-  @override
-  int get state => super.state;
-  @override
-  set state(int value) => super.state = value;
-
-  void increment() => state++;
-}
-
 void main() {
   test('listen to state changes', () {
     final container = ProviderContainer();
-    var i = 0;
-    late void Function() setter;
+    late void Function(int i) setter;
     final event = Provider<int>((ref) {
-      setter = () => ref.setState(i);
-      return i;
+      setter = (i) => ref.state = i;
+      return 0;
     });
     final provider = Provider<int>((ref) {
-      ref.onState<int>(event, (val) {
-        ref.setState(val);
+      ref.listen<int>(event, (val) {
+        ref.state = val;
       });
 
       return -1;
@@ -35,12 +23,10 @@ void main() {
 
     expect(container.read(provider), -1);
 
-    i = 1;
     container.refresh(event);
-    expect(container.read(provider), 1);
+    expect(container.read(provider), 0);
 
-    i = 2;
-    setter();
+    setter(2);
     expect(container.read(provider), 2);
   });
 
@@ -50,7 +36,7 @@ void main() {
       return 0;
     });
     final provider = Provider.autoDispose((ref) {
-      ref.onState<int>(event, (state) {});
+      ref.listen<int>(event, (state) {});
       return 1;
     });
 
@@ -64,23 +50,42 @@ void main() {
     expect(container.readProviderElement(event).hasListeners, isFalse);
   });
 
-  test('watch and listen and  the same time', () async {
+  test('cannot watch and listen at the same time', () {
     final container = ProviderContainer();
-    final call = CallMock();
     final event = Provider<int>((ref) {
       return 0;
     });
-    final provider = Provider.autoDispose((ref) {
-      ref.onState<int>(event, (state) {
-        call();
-        ref.setState(state);
-      });
+    final cannotWatch = Provider((ref) {
+      ref.listen<int>(event, (state) {});
       return ref.watch(event);
     });
+    final cannotListen = Provider((ref) {
+      final i = ref.watch(event);
+      ref.listen<int>(event, (state) {});
+      return i;
+    });
 
-    container.read(provider);
-    container.refresh(event);
-    verify(call()).called(0);
+    runZonedGuarded(() => container.read(cannotWatch), (err, stack) {
+      expect(
+        err,
+        isA<ProviderException>().having(
+          (s) => s.exception.toString(),
+          'exception.toString',
+          contains('Cannot watch Provider'),
+        ),
+      );
+    });
+
+    runZonedGuarded(() => container.read(cannotListen), (err, stack) {
+      expect(
+        err,
+        isA<ProviderException>().having(
+          (s) => s.exception.toString(),
+          'exception.toString',
+          contains('Cannot listen Provider'),
+        ),
+      );
+    });
   });
 }
 
